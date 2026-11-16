@@ -334,6 +334,16 @@ button.chip[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 
 .cs-ver .v-art{display:block;width:100%;aspect-ratio:160/223;border-radius:5px}
 .cs-lbl{display:block;font-size:11px;font-weight:700;margin-top:2px}
 .cs-strip.single{justify-content:center}
+.sharebtns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sbtn{display:flex;align-items:center;justify-content:center;gap:4px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);text-decoration:none;font-weight:700;font-size:14px;min-height:48px}
+.sbtn.sx{background:#000;color:#fff;border-color:#000}
+.sbtn.sline{background:#06c755;color:#fff;border-color:#06c755}
+.sbtn .hint{font-weight:400;font-size:11px}
+.shareurl{width:100%;margin-top:10px;font-family:var(--mono);font-size:12px}
+.sharemore{margin-top:8px}
+.sharemore summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:6px}
+.shared{max-width:900px;margin:0 auto}
+.shared-acts{gap:8px;margin:12px 0 4px}
 .sharetxt{width:100%;min-height:160px;font-family:var(--mono);font-size:12px}
 .deckimg{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line)}
 .tag.reg-hall{color:var(--warn)}
@@ -660,16 +670,71 @@ function parseDeckCode(text){
     return {name: String(o.n || "共有されたデッキ").slice(0, 60), cards, miss};
   } catch { return null; }
 }
+// 公開サイトのURL（claude.ai 版から共有するときも GitHub 版のリンクにする）
+const SITE_URL = /github\.io$/.test(location.hostname) ? location.origin + location.pathname : "https://yngnoah1121-ship-it.github.io/my-website/";
+const shareUrl = d => SITE_URL + "?deck=" + deckCode(d) + "#shared";
+function shareSummary(d){ const r = cardsCost(d.cards), main = d.cards.filter(e=>zoneOf(e.name)==="main").reduce((a,e)=>a+e.count,0);
+  return `【${d.name}】${main}枚${r.total ? "・最安" + yen(r.total) + (r.missing ? "〜" : "") : ""}`; }
 function openShare(d){
-  const code = deckCode(d), r = cardsCost(d.cards);
-  const text = `【${d.name}】${d.cards.filter(e=>zoneOf(e.name)==="main").reduce((a,e)=>a+e.count,0)}枚${r.total ? " ・ 最安 " + yen(r.total) + (r.missing ? "〜" : "") : ""}\n` + d.cards.map(e => `${e.count} ${e.name}`).join("\n") + `\n\nデッキコード：\n${code}`;
+  const url = shareUrl(d), sum = shareSummary(d);
+  const post = `${sum}\n#デュエマ #DUELFORGE`;
+  const text = `${sum}\n` + d.cards.map(e => `${e.count} ${e.name}`).join("\n") + `\n\n${url}`;
   const box = popup(`<div class="modal-head"><div><h3>デッキを共有</h3><p class="hint" style="margin:0">${esc(d.name)}</p></div><button class="small" data-cm="close" aria-label="閉じる">✕</button></div>
-    <p class="hint" style="margin:0 0 8px">下の文章をLINEやXなどに貼って送れます。受け取った人は、このサイトの「myデッキ」→「コードから読み込む」に貼ると、同じデッキ（絵柄も同じ）を保存できます。</p>
-    <textarea id="shareTxt" class="sharetxt" readonly>${esc(text)}</textarea>
-    <div class="row" style="margin-top:8px"><button class="primary small" id="copyShare">文章をコピー</button><button class="small" id="copyCode">コードだけコピー</button><span class="hint" id="shareMsg"></span></div>`);
-  const copy = (t, msg) => navigator.clipboard.writeText(t).then(() => $("#shareMsg").textContent = msg, () => { $("#shareTxt").select(); $("#shareMsg").textContent = "選択したので、コピーしてください"; });
-  box.querySelector("#copyShare").onclick = () => copy(text, "コピーしました");
-  box.querySelector("#copyCode").onclick = () => copy(code, "コードをコピーしました");
+    <p class="hint" style="margin:0 0 10px">リンクを開いた人は、このデッキの中身・価格をすぐ見られて、ボタン1つで自分のmyデッキに保存できます。</p>
+    <div class="sharebtns">
+      <a class="sbtn sx" href="https://x.com/intent/post?text=${encodeURIComponent(post)}&url=${encodeURIComponent(url)}" target="_blank" rel="noopener"><b>𝕏</b>でポスト</a>
+      <a class="sbtn sline" href="https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(url)}" target="_blank" rel="noopener"><b>LINE</b>で送る</a>
+      <button class="sbtn" id="shareNative" hidden>ほかのアプリ<span class="hint">（画像つき）</span></button>
+      <button class="sbtn" id="copyUrl">リンクをコピー</button>
+    </div>
+    <input class="shareurl" id="shareUrl" readonly value="${esc(url)}" aria-label="共有リンク">
+    <p class="hint" id="shareMsg" role="status" style="min-height:1.2em;margin:6px 0 0"></p>
+    <details class="sharemore"><summary>カードの一覧つきの文章・デッキコード</summary>
+      <textarea id="shareTxt" class="sharetxt" readonly>${esc(text)}</textarea>
+      <div class="row" style="margin-top:8px"><button class="small" id="copyShare">文章をコピー</button><button class="small" id="copyCode">コードだけコピー</button></div>
+    </details>`);
+  const copy = (t, msg, sel) => navigator.clipboard.writeText(t).then(() => $("#shareMsg").textContent = msg, () => { $(sel).select(); $("#shareMsg").textContent = "選択したので、コピーしてください"; });
+  box.querySelector("#copyUrl").onclick = () => copy(url, "リンクをコピーしました", "#shareUrl");
+  box.querySelector("#copyShare").onclick = () => copy(text, "文章をコピーしました", "#shareTxt");
+  box.querySelector("#copyCode").onclick = () => copy(deckCode(d), "コードをコピーしました", "#shareTxt");
+  // スマホの共有シート：デッキ画像をつけて送る（使える端末だけ表示）
+  if (navigator.share) {
+    const btn = box.querySelector("#shareNative"); btn.hidden = false; let file = null;
+    if (d.cards.length) renderDeckCanvas(d).then(cv => cv.toBlob(b => { if (b) file = new File([b], "deck.png", {type: "image/png"}); }, "image/png")).catch(() => {});
+    btn.onclick = async () => {
+      const data = {title: d.name, text: post, url};
+      if (file && navigator.canShare?.({files: [file]})) data.files = [file];
+      try { await navigator.share(data); } catch (e) { if (e?.name !== "AbortError") $("#shareMsg").textContent = "共有できませんでした"; }
+    };
+  }
+}
+/* ---------- 共有されたデッキを開く（?deck=コード#shared） ---------- */
+function renderShared(){
+  const raw = new URLSearchParams(location.search).get("deck") || "";
+  const d = parseDeckCode(raw);
+  if (!d || !d.cards.length) { $("#view").innerHTML = `<section class="panel" style="max-width:640px;margin:24px auto"><h2>デッキを開けませんでした</h2><p class="hint">リンクが途中で切れているかもしれません。送ってくれた人に、もう一度リンクを送ってもらってください。</p><p><a href="#decks">myデッキへ</a></p></section>`; return; }
+  const main = d.cards.filter(e => zoneOf(e.name) === "main").reduce((a, e) => a + e.count, 0), r = cardsCost(d.cards), iss = regIssues(d.cards);
+  const saveVer = VER; VER = {}; d.cards.forEach(e => { const a = verOf(e); if (a?.sp && a.id !== findCard(e.name)?.officialId) VER[e.name] = a; });
+  const zones = Object.entries(ZONES).map(([k, z]) => [z.label, d.cards.filter(e => zoneOf(e.name) === k).map(e => ({e, c: findCard(e.name)})).sort((a, b) => sorters.cost(a.c, b.c))]).filter(([, l]) => l.length);
+  const tilesHtml = zones.map(([label, list]) => `<p class="hint" style="margin:12px 0 4px"><b>${label}</b> ${list.reduce((a, x) => a + x.e.count, 0)}枚</p><div class="tiles viewtiles sharedtiles">${list.map(x => tile(x.c, x.e.count, "view")).join("")}</div>`).join("");
+  VER = saveVer;
+  document.title = `${d.name}｜DUEL FORGE`;
+  $("#view").innerHTML = `<section class="shared">
+    <p class="hint" style="margin:0">共有されたデッキ</p>
+    <h2 style="margin:4px 0 6px">${esc(d.name)}</h2>
+    <div class="row" style="gap:8px"><span class="pill ${main===40?"ok":""}">メイン ${main}枚</span>${r.total ? `<span class="pill yen">最安 ${yen(r.total)}${r.missing?"〜":""}</span>` : ""}${iss.length ? '<span class="pill ng">殿堂違反あり</span>' : ""}</div>
+    ${d.miss.length ? `<p class="hint">このサイトにないカード ${d.miss.length}種は表示していません。</p>` : ""}
+    <div class="row shared-acts"><button class="primary" id="shSave">myデッキに保存</button><button id="shPlay" ${main<10?"disabled":""}>保存してテストプレイ ▶</button><button id="shImg">デッキ画像</button><button id="shShare">共有</button></div>
+    <p class="hint" id="shMsg" role="status"></p>
+    ${tilesHtml}
+    <details class="panel" style="margin-top:14px"><summary>価格の内訳</summary>${priceViewHtml(d.cards)}</details>
+  </section>`;
+  let savedId = null;
+  const save = () => { if (!savedId) { savedId = createDeck(d.name, d.cards).id; $("#shMsg").textContent = "myデッキに保存しました"; } return savedId; };
+  $("#shSave").onclick = () => { openDeckFor(save(), "#deck"); };
+  $("#shPlay").onclick = () => { openDeckFor(save(), "#sim"); };
+  $("#shImg").onclick = () => openDeckImage(d);
+  $("#shShare").onclick = () => openShare(d);
 }
 function openImportCode(){
   const box = popup(`<div class="modal-head"><div><h3>コードから読み込む</h3><p class="hint" style="margin:0">送られてきた文章やデッキコードを貼ってください</p></div><button class="small" data-cm="close" aria-label="閉じる">✕</button></div>
@@ -2145,12 +2210,15 @@ function onSheetClick(e){
 }
 
 /* ---------- ルーティング ---------- */
-const views = {prices:renderPrices, decks:renderDecks, deck:renderDeck, sim:renderSim, support:renderSupport, feedback:renderFeedback};
+const views = {prices:renderPrices, decks:renderDecks, deck:renderDeck, sim:renderSim, support:renderSupport, feedback:renderFeedback, shared:renderShared};
+const DEFAULT_TITLE = document.title;
 function route(){
   syncVer();
-  const k = (location.hash || "#prices").slice(1);
+  let k = (location.hash || "#prices").slice(1);
+  if (new URLSearchParams(location.search).get("deck") && (!location.hash || location.hash === "#shared")) k = "shared";
+  if (k !== "shared") document.title = DEFAULT_TITLE;
   const name = views[k] ? k : "prices";
-  const navName = ["deck","sim"].includes(name) ? "decks" : name;
+  const navName = ["deck","sim","shared"].includes(name) ? "decks" : name;
   document.querySelectorAll("#nav a").forEach(a => { if (a.getAttribute("href")==="#"+navName) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
   views[name]();
 }
