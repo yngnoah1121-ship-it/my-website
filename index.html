@@ -1401,8 +1401,19 @@ function drawN(n){
 }
 // 多色カードと「マナゾーンに置く時、このカードはタップして置く」カードはタップしてマナに置かれる
 function tapsInMana(x){ const fc = findCard(x.name); return (fc?.civ?.length || 0) > 1 || (fc?.text || []).some(sd => sd.lines.some(l => /マナゾーンに置く時、?このカードはタップして置く/.test(zen(l)))); }
+function hasEternalOmega(c){
+  const lines = n => (findCard(n)?.text || []).flatMap(sd => sd.lines).map(zen);
+  if (lines(c.name).some(l => /^エターナル・Ω/.test(l))) return true;
+  return game.z.battle.some(g => lines(g.name).some(l => { const m = l.match(/自分の(.+?)すべてに「エターナル・Ω」を与える/); if (!m) return false;
+    const fc = findCard(c.name) || {}, race = (fc.text || []).map(sd => sd.race || "").join("/"), type = fc.type || "";
+    return m[1].split(/と|、|または/).some(w => (w = w.replace(/クリーチャー$/, "")) && (race.includes(w) || type.includes(w))); }));
+}
 function moveCard(from, uid, to, opts = {}){
   const src = game.z[from], i = src.findIndex(c=>c.uid===uid); if (i<0) return;
+  // エターナル・Ω：バトルゾーンを離れる時、かわりに手札に戻す（自身が持つか、場のカードが与えている場合）
+  if (from === "battle" && !["battle", "hand"].includes(to) && !opts.force && hasEternalOmega(src[i])) {
+    log(`エターナル・Ω：${src[i].name} は${ZNAME[to] || to}に行くかわりに手札に戻った`); toast(`エターナル・Ω：${src[i].name} は手札に戻りました`); to = "hand";
+  }
   // EXライフ：バトルゾーンを離れる時、かわりにEXライフのシールドを1つ墓地に置く
   if (from === "battle" && to !== "battle" && !opts.force) {
     const me = src[i], xi = (me.under || []).findIndex(u => u.exlife);
@@ -1747,6 +1758,7 @@ function parseFilter(x){
 }
 function matches(c, f){
   if (!f) return true;
+  if (f.any) return f.any.some(g => matches(c, g));
   const fc = findCard(c.name) || {}; const t = fc.type || "", race = (fc.text||[]).map(s=>s.race||"").join("/") + "/" + (fc.race||"");
   if (f.civ.length && !f.civ.some(x => (fc.civ||[]).includes(x))) return false;
   if (f.costMax != null && !(fc.cost != null && fc.cost <= f.costMax)) return false;
@@ -1809,6 +1821,10 @@ function parseSteps(line){
     if (/自分の手札をすべて捨てる/.test(s)) { steps.push({op:"choose", from:["hand"], filter:null, q:{all:true, max:99}, dest:"grave", text:s}); continue; }
     if ((m = s.match(/コストの合計が(\d+)以下になるように、?好きな数の(.+?)を自分の手札からバトルゾーンに出す/))) { steps.push({op:"choose", from:["hand"], filter: parseFilter(m[2]), q:{max:99}, dest:"battle", text:s + `（コストの合計${m[1]}以下）`}); continue; }
     if ((m = s.match(/バトルゾーンにある自分の、?選んだ文明のクリーチャーを(\d+)体、?マナゾーンに置いてもよい/))) { steps.push({op:"choose", from:["battle"], filter: parseFilter("クリーチャー"), q:{max:+m[1]}, dest:"mana", opt:true, text:s}); continue; }
+    if ((m = s.match(/(?:^|、)([^、]+?)を合計(\d+)枚、?自分の(墓地|マナゾーン|手札)(?:または|か)(墓地|マナゾーン|手札)から(手札に戻|手札に加え|マナゾーンに置|墓地に置)/))) {
+      const parts = m[1].split(/または|か(?=[^ら])/).map(x => x.trim()).filter(Boolean);
+      steps.push({op:"choose", from:[ZONEJ[m[3]], ZONEJ[m[4]]], filter: parts.length > 1 ? {civ:[], words:[], abil:[], names:[], any: parts.map(parseFilter)} : parseFilter(m[1]), q:{max:+m[2]}, dest: destOf(m[5]), text:s}); continue; }
+    if (/^(?:その後、?)?このクリーチャーをタップしてもよい/.test(s)) { steps.push({op:"tapSelf", opt:true, text:s}); continue; }
     if (/ヨビニオン/.test(s)) { steps.push({op:"yobinion", text:s}); continue; }
     if (/ターンの残りをとばす/.test(s)) { steps.push({op:"endTurn", text:s}); continue; }
     if (/このターンの後に自分のターンを追加/.test(s)) { steps.push({op:"extraTurn", text:s}); continue; }
@@ -1946,6 +1962,7 @@ function stepLabel(st){
 }
 function filterText(f){
   if (!f) return "";
+  if (f.any) return f.any.map(filterText).filter(Boolean).join(" または ");
   const a = [];
   if (f.civ.length) a.push(f.civ.map(c=>CIV[c]).join("か"));
   if (f.costMax != null) a.push(`コスト${f.costMax}以下`);
