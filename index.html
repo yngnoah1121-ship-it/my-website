@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="ja">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>[hidden]{display:none!important}</style>
@@ -375,6 +376,8 @@ textarea{width:100%;min-height:140px;font-family:var(--mono);font-size:13px}
   .fz-hand .fslot{flex:none}
 </style>
 
+</head>
+<body>
 <header><div class="wrap top">
   <h1 class="brand"><span class="brand-mark" aria-hidden="true"></span>DUEL <b>FORGE</b><small>デッキ・価格・一人回し ｜ 非公式ファンツール</small></h1>
   <nav id="nav">
@@ -725,7 +728,7 @@ async function openDeckImage(d){
   $("#imgMsg").textContent = "保存ボタンが使えないときは、画像を長押し（パソコンは右クリック）して保存してください。";
   $("#imgSave").onclick = async () => {
     const dl = window.claude?.use ? await claude.use("downloads").catch(() => null) : null;
-    if (!dl) { $("#imgSaveMsg").textContent = "この画面では保存ボタンが使えません。画像を長押しして保存してください。"; return; }
+    if (!dl) { const a = document.createElement("a"); a.href = url; a.download = (d.name || "deck").replace(/[\\/:*?"<>|]/g, "_") + ".png"; document.body.appendChild(a); a.click(); a.remove(); $("#imgSaveMsg").textContent = "保存しました（保存されないときは画像を長押ししてください）"; return; }
     cv.toBlob(async blob => {
       try { await dl.save({filename: (d.name || "deck").replace(/[\\/:*?"<>|]/g, "_") + ".png", data: blob}); $("#imgSaveMsg").textContent = "保存しました"; }
       catch (e) { $("#imgSaveMsg").textContent = e?.code === "declined" ? "保存をやめました" : "保存できませんでした。画像を長押しして保存してください。"; }
@@ -903,10 +906,28 @@ function deckFaces(d, n = 3){
 // 投稿者は自分のドキュメントだけ書ける。全員が一覧を読める。状態と返信はサイトの持ち主が書く。
 const FB_CATS = ["不具合", "要望", "カード・効果の間違い", "その他"];
 const FB_STATUS = {new: ["受付", ""], doing: ["対応中", "doing"], done: ["対応済み", "done"], wontfix: ["見送り", "wont"]};
-let fbState = {db: null, uid: null, items: [], loaded: false, note: "", unsub: null, started: false};
+let fbState = {db: null, uid: null, items: [], loaded: false, note: "", unsub: null, started: false, gh: false};
+// GitHub 版：GitHub Issues（ラベル「意見箱」）を意見箱として使う
+const GH_REPO = "yngnoah1121-ship-it/my-website";
+async function fbStartGitHub(){
+  fbState.gh = true; drawFeedback();
+  try {
+    const r = await fetch(`https://api.github.com/repos/${GH_REPO}/issues?state=all&per_page=50`, {headers: {Accept: "application/vnd.github+json"}});
+    if (!r.ok) throw new Error(r.status);
+    const list = await r.json();
+    fbState.items = list.filter(i => !i.pull_request).map(i => {
+      const labels = (i.labels || []).map(l => l.name);
+      const m = (i.title || "").match(/^【(.+?)】\s*(.*)$/);
+      return {id: i.number, cat: m ? m[1] : "その他", text: (m ? m[2] + "\n" : "") + (i.body || "").replace(/^<!--[\s\S]*?-->\s*/, "").trim(),
+        at: Date.parse(i.created_at), status: labels.includes("見送り") ? "wontfix" : i.state === "closed" ? "done" : labels.includes("対応中") ? "doing" : "new",
+        reply: i.comments ? `運営からのコメントが${i.comments}件あります` : "", url: i.html_url};
+    });
+  } catch (e) { fbState.note = "意見の一覧を読み込めませんでした。時間をおいて開き直してください。"; }
+  fbState.loaded = true; drawFeedback();
+}
 async function fbStart(){
   if (fbState.started) return; fbState.started = true;
-  if (!window.claude?.use) { fbState.note = "この画面では意見箱を使えません。"; fbState.loaded = true; drawFeedback(); return; }
+  if (!window.claude?.use) { fbStartGitHub(); return; }
   const [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
   fbState.uid = user ? await user.id() : null;
   if (!db) { fbState.note = "意見箱を読み込めませんでした。claude.aiにログインしてから開いてください。"; fbState.loaded = true; drawFeedback(); return; }
@@ -928,8 +949,8 @@ function renderFeedback(){
     <form class="panel fb-form" id="fbForm">
       <div class="seg fb-cats" role="radiogroup" aria-label="種類">${FB_CATS.map((c, i) => `<label><input type="radio" name="fbcat" value="${esc(c)}" ${i===0?"checked":""}><span>${esc(c)}</span></label>`).join("")}</div>
       <textarea id="fbText" maxlength="1000" rows="5" placeholder="例：テストプレイで○○を使うと、△△になってしまう。本当は□□になるはず。" aria-label="内容"></textarea>
-      <div class="row fb-row"><span class="hint" id="fbCount">0 / 1000</span><span class="hint" id="fbMsg" role="status"></span><button class="primary" id="fbSend" type="submit">送る</button></div>
-      <p class="hint" style="margin:0">名前は表示されません。書いた内容は、このページを開ける人みんなが見られます。個人情報は書かないでください。</p>
+      <div class="row fb-row"><span class="hint" id="fbCount">0 / 1000</span><span class="hint" id="fbMsg" role="status"></span><button class="primary" id="fbSend" type="submit">${window.claude?.use ? "送る" : "GitHubで送る ↗"}</button></div>
+      <p class="hint" style="margin:0">${window.claude?.use ? "名前は表示されません。" : "送るにはGitHubのアカウント（無料）が必要です。送ると、GitHubのユーザー名と一緒に公開されます。"}書いた内容は誰でも見られます。個人情報は書かないでください。</p>
     </form>
     <div class="fb-head"><h3>みんなの意見</h3><span class="hint" id="fbNum"></span></div>
     <p class="hint" id="fbNote"></p>
@@ -941,6 +962,12 @@ function renderFeedback(){
     e.preventDefault();
     const text = ta.value.trim(), cat = (document.querySelector('input[name=fbcat]:checked') || {}).value || "その他";
     if (text.length < 5) { $("#fbMsg").textContent = "もう少しくわしく書いてください（5文字以上）"; return; }
+    if (fbState.gh) {
+      const title = `【${cat}】${text.split("\n")[0].slice(0, 40)}`;
+      const body = `<!-- DUEL FORGE 意見箱から -->\n${text}`;
+      window.open(`https://github.com/${GH_REPO}/issues/new?labels=${encodeURIComponent("意見箱")}&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`, "_blank", "noopener");
+      $("#fbMsg").textContent = "GitHubの画面が開きます。「Create」を押すと送信されます。"; return;
+    }
     if (!fbState.db || !fbState.uid) { $("#fbMsg").textContent = "送れません。claude.aiにログインしてから開いてください。"; return; }
     const btn = $("#fbSend"); btn.disabled = true; $("#fbMsg").textContent = "送信中…";
     try {
@@ -968,6 +995,7 @@ function drawFeedback(){
     return `<article class="fb-item panel">
       <div class="fb-meta"><span class="fb-st ${cls}">${esc(label)}</span><span class="pill yen">${esc(it.cat || "その他")}</span><span class="hint">${d(it.at)}</span>${it.owner && it.owner === fbState.uid ? '<span class="hint">あなたの投稿</span>' : ""}</div>
       <p class="fb-text">${esc(it.text || "")}</p>
+      ${it.url ? `<a class="hint" href="${esc(it.url)}" target="_blank" rel="noopener">GitHubで見る ↗</a>` : ""}
       ${it.reply ? `<div class="fb-reply"><b>運営より</b>${it.repliedAt ? `<span class="hint"> ${d(it.repliedAt)}</span>` : ""}<p>${esc(it.reply)}</p></div>` : ""}
     </article>`; }).join("");
 }
@@ -2132,3 +2160,5 @@ fetch("data.json", {cache:"no-store"}).then(r => { if(!r.ok) throw 0; return r.j
 
 })();
 </script>
+</body>
+</html>

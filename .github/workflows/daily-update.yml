@@ -1,0 +1,52 @@
+name: 毎日の価格・殿堂更新
+
+on:
+  schedule:
+    - cron: "47 18 * * *"   # 日本時間 3:47
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 殿堂レギュレーションを取得
+        continue-on-error: true
+        run: |
+          curl -sL https://dm.takaratomy.co.jp/rule/regulation/ -o /tmp/reg.html
+          python3 tools/reg.py /tmp/reg.html data.json
+      - name: ドラゴンスター・PAO の価格を取得（約2時間半）
+        run: python3 tools/prices.py data.json /tmp/prices.json 2> /tmp/prices.log
+      - name: 結果を確認して反映
+        run: |
+          tail -5 /tmp/prices.log
+          python3 - <<'PY'
+          import json, sys
+          s = json.load(open("/tmp/prices.json"))
+          bad = [shop for shop in ("dragonstar", "pao")
+                 if sum(v.get("st") == "ok" for v in s.get(shop, {}).values()) < 1000
+                 or sum(v.get("st") == "error" for v in s.get(shop, {}).values()) > 200]
+          if bad:
+              print("取得に失敗したので価格は更新しません:", bad); sys.exit(1)
+          PY
+          python3 tools/merge_prices.py data.json /tmp/prices.json
+      - name: コミットしてプッシュ
+        if: always()
+        run: |
+          git config user.name "DUEL FORGE bot"
+          git config user.email "duel-forge@users.noreply.github.com"
+          git add data.json
+          git diff --cached --quiet && echo "変更なし" && exit 0
+          git commit -m "毎日の価格・殿堂更新 $(TZ=Asia/Tokyo date '+%Y-%m-%d')"
+          git push
