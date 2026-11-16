@@ -334,6 +334,8 @@ button.chip[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 
 .cs-ver .v-art{display:block;width:100%;aspect-ratio:160/223;border-radius:5px}
 .cs-lbl{display:block;font-size:11px;font-weight:700;margin-top:2px}
 .cs-strip.single{justify-content:center}
+.gtoast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translate(-50%,20px);opacity:0;pointer-events:none;z-index:60;background:var(--ink);color:var(--surface);padding:10px 16px;border-radius:999px;font-size:14px;font-weight:700;transition:.2s;max-width:calc(100% - 32px);text-align:center}
+.gtoast.on{opacity:1;transform:translate(-50%,0)}
 .sharebtns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .sbtn{display:flex;align-items:center;justify-content:center;gap:4px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);text-decoration:none;font-weight:700;font-size:14px;min-height:48px}
 .sbtn.sx{background:#000;color:#fff;border-color:#000}
@@ -675,7 +677,18 @@ const SITE_URL = /github\.io$/.test(location.hostname) ? location.origin + locat
 const shareUrl = d => SITE_URL + "?deck=" + deckCode(d) + "#shared";
 function shareSummary(d){ const r = cardsCost(d.cards), main = d.cards.filter(e=>zoneOf(e.name)==="main").reduce((a,e)=>a+e.count,0);
   return `【${d.name}】${main}枚${r.total ? "・最安" + yen(r.total) + (r.missing ? "〜" : "") : ""}`; }
-function openShare(d){
+// ワンタッチ共有：スマホは共有シートをすぐ開く／パソコンはリンクをコピーしてから共有パネルを出す
+function gtoast(msg){ let t = $("#gtoast"); if (!t) { t = document.createElement("div"); t.id = "gtoast"; t.className = "gtoast"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add("on"); clearTimeout(gtoast.tm); gtoast.tm = setTimeout(() => t.classList.remove("on"), 2600); }
+function oneTapShare(d){
+  if (!d.cards.length) { gtoast("カードが入っていません"); return; }
+  const url = shareUrl(d), text = shareSummary(d) + "\n#デュエマ #DUELFORGE";
+  const touch = matchMedia("(pointer: coarse)").matches;
+  if (navigator.share && touch) { navigator.share({title: d.name, text, url}).catch(e => { if (e?.name !== "AbortError") openShare(d); }); return; }
+  const done = () => { gtoast("共有リンクをコピーしました。貼り付けて送れます"); openShare(d, "リンクをコピーしました"); };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done, () => openShare(d)); else openShare(d);
+}
+function openShare(d, msg){
   const url = shareUrl(d), sum = shareSummary(d);
   const post = `${sum}\n#デュエマ #DUELFORGE`;
   const text = `${sum}\n` + d.cards.map(e => `${e.count} ${e.name}`).join("\n") + `\n\n${url}`;
@@ -688,7 +701,7 @@ function openShare(d){
       <button class="sbtn" id="copyUrl">リンクをコピー</button>
     </div>
     <input class="shareurl" id="shareUrl" readonly value="${esc(url)}" aria-label="共有リンク">
-    <p class="hint" id="shareMsg" role="status" style="min-height:1.2em;margin:6px 0 0"></p>
+    <p class="hint" id="shareMsg" role="status" style="min-height:1.2em;margin:6px 0 0">${msg ? esc(msg) : ""}</p>
     <details class="sharemore"><summary>カードの一覧つきの文章・デッキコード</summary>
       <textarea id="shareTxt" class="sharetxt" readonly>${esc(text)}</textarea>
       <div class="row" style="margin-top:8px"><button class="small" id="copyShare">文章をコピー</button><button class="small" id="copyCode">コードだけコピー</button></div>
@@ -734,7 +747,7 @@ function renderShared(){
   $("#shSave").onclick = () => { openDeckFor(save(), "#deck"); };
   $("#shPlay").onclick = () => { openDeckFor(save(), "#sim"); };
   $("#shImg").onclick = () => openDeckImage(d);
-  $("#shShare").onclick = () => openShare(d);
+  $("#shShare").onclick = () => oneTapShare(d);
 }
 function openImportCode(){
   const box = popup(`<div class="modal-head"><div><h3>コードから読み込む</h3><p class="hint" style="margin:0">送られてきた文章やデッキコードを貼ってください</p></div><button class="small" data-cm="close" aria-label="閉じる">✕</button></div>
@@ -1167,7 +1180,7 @@ function openDeckModal(id, mode){
         <button data-m="price"><b>デッキの価格</b><span>${d.cards.length?`最安で ${deckTotalText(d.cards)}・店ごとの内訳`:"カードを入れると見られます"}</span></button>
         <button data-m="copy"><b>コピー</b><span>このデッキの複製を作る</span></button>
         <button data-m="image"><b>画像で保存</b><span>デッキの画像を作って保存する</span></button>
-        <button data-m="share"><b>共有</b><span>デッキコードを人に送る</span></button>
+        <button data-m="share"><b>共有</b><span>デッキのリンクをワンタッチで送る</span></button>
         <button class="go" data-m="play" ${n<10?"disabled":""}><b>テストプレイ</b><span>${n<10?"メインデッキが10枚以上になると使えます":"デッキを1人で回して試す（一人回し）"}</span></button>
       </div>`;
   }
@@ -1179,7 +1192,7 @@ function openDeckModal(id, mode){
     else if (m === "view") openDeckModal(id, "view");
     else if (m === "price") openDeckModal(id, "price");
     else if (m === "image") { modal.hidden = true; openDeckImage(d); }
-    else if (m === "share") { modal.hidden = true; openShare(d); }
+    else if (m === "share") { modal.hidden = true; oneTapShare(d); }
     else if (m === "edit") { modal.hidden = true; openDeckFor(id, "#deck"); }
     else if (m === "play") { modal.hidden = true; openDeckFor(id, "#sim"); }
     else if (m === "copy") { const c = createDeck(d.name + " のコピー", d.cards); modal.hidden = true; renderDecks(); openDeckModal(c.id); }
@@ -1196,7 +1209,7 @@ function renderDeck(){
         <div class="ztabs" role="tablist">${Object.entries(ZONES).map(([k,z])=>`<button role="tab" data-zone="${k}" aria-selected="${bz.zone===k}">${z.label} <b id="zc-${k}"></b></button>`).join("")}</div>
         <div class="b-actions">
           <span class="pill ok" id="deckYen" title="最安でそろえた合計"></span><button class="small" data-panel="price">価格</button><button class="small" data-panel="analysis">分析</button>
-          <button class="small" data-panel="list">リスト</button><button class="small" id="imgBtn">画像</button><button class="small" id="shareBtn">共有</button>
+          <button class="small" data-panel="list">リスト</button><button class="small" id="imgBtn">画像</button><button class="small" id="shareBtn" title="ワンタッチでデッキのリンクを共有">共有 ↗</button>
           <button class="small" id="clearBtn">全削除</button>
         </div>
       </div>
@@ -1249,7 +1262,7 @@ function renderDeck(){
     if (add) { const z = zoneOf(add.dataset.add); if (!addToDeck(add.dataset.add, 1)) flash(add, lastBlock || `${ZONES[z].label}はこれ以上入れられません`); else { if (bz.zone!==z) { bz.zone=z; v.querySelectorAll("[data-zone]").forEach(x=>x.setAttribute("aria-selected", x.dataset.zone===z)); } refreshDeck(); } }
     if (rm) { addToDeck(rm.dataset.rm, -1); refreshDeck(); }
     if (e.target.closest("#imgBtn")) openDeckImage({name: currentSaved()?.name || "デッキ", cards: deck});
-    if (e.target.closest("#shareBtn")) openShare({name: currentSaved()?.name || "デッキ", cards: deck});
+    if (e.target.closest("#shareBtn")) oneTapShare({name: currentSaved()?.name || "デッキ", cards: deck});
   };
   wireDeckBar(); refreshDeck(); drawPool();
 }
