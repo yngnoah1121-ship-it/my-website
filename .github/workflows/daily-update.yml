@@ -29,6 +29,7 @@ jobs:
       - name: ドラゴンスター・PAO の価格を取得（約2時間半）
         run: python3 tools/prices.py data.json /tmp/prices.json 2> /tmp/prices.log
       - name: 結果を確認して反映
+        id: check
         run: |
           tail -5 /tmp/prices.log
           python3 - <<'PY'
@@ -41,12 +42,20 @@ jobs:
               print("取得に失敗したので価格は更新しません:", bad); sys.exit(1)
           PY
           python3 tools/merge_prices.py data.json /tmp/prices.json
-      - name: コミットしてプッシュ
+      - name: 最新の data.json に結果を適用してプッシュ
         if: always()
         run: |
           git config user.name "DUEL FORGE bot"
           git config user.email "duel-forge@users.noreply.github.com"
-          git add data.json
-          git diff --cached --quiet && echo "変更なし" && exit 0
-          git commit -m "毎日の価格・殿堂更新 $(TZ=Asia/Tokyo date '+%Y-%m-%d')"
-          git push
+          # 取得中に data.json が更新されていても上書きしないよう、最新版に取得結果を当て直す
+          for i in 1 2 3; do
+            git fetch origin main && git reset --hard origin/main
+            [ -s /tmp/reg.html ] && python3 tools/reg.py /tmp/reg.html data.json || true
+            if [ -s /tmp/prices.json ] && [ "${{ steps.check.outcome }}" = "success" ]; then python3 tools/merge_prices.py data.json /tmp/prices.json; fi
+            git add data.json
+            git diff --cached --quiet && echo "変更なし" && exit 0
+            git commit -m "毎日の価格・殿堂更新 $(TZ=Asia/Tokyo date '+%Y-%m-%d')"
+            git push && exit 0
+            sleep 10
+          done
+          exit 1
