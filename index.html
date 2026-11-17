@@ -1926,7 +1926,9 @@ function parseSteps(line){
 }
 const realSteps = steps => steps.filter(st => st.op !== "manual");
 const STATIC_RE = /ブレイカー|^\s*ブロッカー|スピードアタッカー|^(?:スーパー・)?S・トリガー|ジャストダイバー|選ばれない|^シンパシー|^アタック・チャンス|マッハファイター|パワー|ブロックされない|攻撃できない|攻撃されない|^G・ゼロ|かわりに|少なく|を与える|スレイヤー|G・ストライク|^エターナル|^【|^超魂|召喚できない|離れない|^S・バック|^ガードマン|^ジャスト|唱えられない|出ない|^ドラゴン・W|^シンカライズ|^エスケープ|^チャージャー|^（|すべての文明を持つ|出せない|置かれない|^クロスギア|^デュエリスト|攻撃する。$|出たターンに|^進化|^NEO進化|^G-NEO|^ネオ進化|^EXライフ$|^ジョーカーズ|^革命\d|^ファイナル革命|^侵略ZERO|^キズナ|^メテオバーン$|^マナ武装|^ハンティング|^エンペラー/;
-function lineKind(l){ const st = parseSteps(l); if (realSteps(st).length) return "steps"; if (st.length) return "manual"; return STATIC_RE.test(zen(l)) ? "static" : "manual"; }
+// 「ブロッカー(相手クリーチャーが…)」のような、キーワード＋説明文の行は常在能力として扱う
+const kwBase = l => zen(l).replace(/^([^(（。]{1,24}?)\s*[(（].*[)）]\s*。?$/, "$1");
+function lineKind(l){ const st = parseSteps(l); if (realSteps(st).length) return "steps"; const kb = kwBase(l); if (kb !== zen(l) && STATIC_RE.test(kb)) return "static"; if (/マナゾーンに置く時、?このカードはタップして置く/.test(zen(l))) return "static"; if (st.length) return "manual"; return STATIC_RE.test(zen(l)) ? "static" : "manual"; }
 
 function stepLabel(st){
   const n = st.q?.all ? "すべて" : st.q?.max >= 99 ? "好きな数" : `${st.q?.max}枚${st.q?.exact?"":"まで"}`;
