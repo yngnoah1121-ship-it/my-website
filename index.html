@@ -436,7 +436,8 @@ function nameMatch(name, q){
   if (!terms.length) return true;
   const k = nameKey(name); return terms.every(t => k.includes(t));
 }
-const findCard = name => DATA.cards.find(c => c.name === name);
+let cardIdx = null, cardIdxFor = null;
+const findCard = name => { if (cardIdxFor !== DATA) { cardIdx = new Map(DATA.cards.map(c => [c.name, c])); cardIdxFor = DATA; } return cardIdx.get(name); };
 const bestPrice = card => {
   let best = null;
   for (const s of DATA.shops) { const p = card.prices?.[s.id]; if (p != null && (best == null || p < best.p)) best = {p, shop:s}; }
