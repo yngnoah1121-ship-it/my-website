@@ -15,9 +15,10 @@ for c in d["cards"]:
             c["prices"].pop(shop, None)
             if r.get("st") in ("soldout", "none"): pst[shop] = r["st"]
         stat[(shop, r.get("st"))] = stat.get((shop, r.get("st")), 0) + 1
+        if r.get("st") in ("ok", "soldout", "none"): c["pAt"] = max(c.get("pAt", ""), (pr.get("at", {}).get(shop) or pr.get("started", ""))[:10])
     if pst: c["pst"] = pst
     else: c.pop("pst", None)
-d["priceAt"] = {k: v for k, v in pr.get("at", {}).items()}
+d["priceAt"] = {**d.get("priceAt", {}), **{k: v for k, v in pr.get("at", {}).items()}}
 d["sample"] = False
 d["updatedAt"] = max(d["priceAt"].values()) if d["priceAt"] else d.get("updatedAt")
 json.dump(d, open(data_path, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))

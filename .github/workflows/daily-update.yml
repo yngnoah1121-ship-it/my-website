@@ -26,7 +26,11 @@ jobs:
         run: |
           curl -sL https://dm.takaratomy.co.jp/rule/regulation/ -o /tmp/reg.html
           python3 tools/reg.py /tmp/reg.html data.json
-      - name: ドラゴンスター・PAO の価格を取得（約2時間半）
+      - name: ドラゴンスター・PAO の価格を取得（価格が古いカードから順に）
+        timeout-minutes: 210
+        continue-on-error: true
+        env:
+          PRICE_BATCH: "900"
         run: python3 tools/prices.py data.json /tmp/prices.json 2> /tmp/prices.log
       - name: 結果を確認して反映
         id: check
@@ -35,9 +39,11 @@ jobs:
           python3 - <<'PY'
           import json, sys
           s = json.load(open("/tmp/prices.json"))
-          bad = [shop for shop in ("dragonstar", "pao")
-                 if sum(v.get("st") == "ok" for v in s.get(shop, {}).values()) < 1000
-                 or sum(v.get("st") == "error" for v in s.get(shop, {}).values()) > 200]
+          def bad_shop(shop):
+              v = list(s.get(shop, {}).values()); ok = sum(x.get("st") == "ok" for x in v); err = sum(x.get("st") == "error" for x in v)
+              print(shop, "取得", len(v), "価格あり", ok, "エラー", err)
+              return len(v) < 50 or ok < len(v) * 0.4 or err > len(v) * 0.2
+          bad = [shop for shop in ("dragonstar", "pao") if bad_shop(shop)]
           if bad:
               print("取得に失敗したので価格は更新しません:", bad); sys.exit(1)
           PY

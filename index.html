@@ -570,7 +570,7 @@ function renderPrices(){
   $("#view").innerHTML = `
   ${DATA.sample ? `<div class="banner">いまはサンプルデータです。カード名と価格は架空のもので、実在のカードや価格ではありません。</div>` : ""}
   <h2>カード価格比較</h2>
-  <p class="lead">${DATA.priceAt ? `${Object.entries(DATA.priceAt).map(([id,at]) => esc(DATA.shops.find(s=>s.id===id)?.name || id)).join("・")}の価格は、各店の検索結果から在庫ありの最安の版を自動で取得しています（毎日自動で更新・取得：${Object.entries(DATA.priceAt).map(([id,at]) => esc((DATA.shops.find(s=>s.id===id)?.name || id)+" "+at)).join("、")}）。` : ""}ほかの店は「探す」を押すと、その店での検索結果が開きます。いちばん安い店には印をつけています。価格と在庫は変わるので、買う前に各店で確認してください。</p>
+  <p class="lead">${DATA.priceAt ? `${Object.entries(DATA.priceAt).map(([id,at]) => esc(DATA.shops.find(s=>s.id===id)?.name || id)).join("・")}の価格は、各店の検索結果から在庫ありの最安の版を自動で取得しています（毎日、価格が古いカードから順に自動で更新・最終取得：${Object.entries(DATA.priceAt).map(([id,at]) => esc((DATA.shops.find(s=>s.id===id)?.name || id)+" "+at)).join("、")}）。` : ""}ほかの店は「探す」を押すと、その店での検索結果が開きます。いちばん安い店には印をつけています。価格と在庫は変わるので、買う前に各店で確認してください。</p>
   <div class="row" style="margin-bottom:12px">
     <input id="q" type="search" placeholder="カード名で検索" value="${esc(query)}" aria-label="カード名で検索">
     ${sets.length>1?`<select id="fset" aria-label="収録商品"><option value="">すべての商品</option>${sets.map(x=>`<option ${filt.set===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:""}

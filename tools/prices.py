@@ -7,8 +7,20 @@ DATA, OUT = sys.argv[1], sys.argv[2]
 LIMIT = int(sys.argv[3]) if len(sys.argv) > 3 else None
 UA = {"User-Agent": "Mozilla/5.0 (fan price comparison; 1 req/2s)"}
 JST = timezone(timedelta(hours=9))
-cards = json.load(open(DATA, encoding="utf-8"))["cards"][:LIMIT]
+cards = json.load(open(DATA, encoding="utf-8"))["cards"]
+# 1日に取る枚数（環境変数 PRICE_BATCH）。価格が古い順に選び、新しいパックのカードは3倍優先する
+BATCH = int(os.environ.get("PRICE_BATCH", "0") or 0)
+if BATCH and len(cards) > BATCH:
+    today = datetime.now(JST).date()
+    recent = {s for s in sorted({c.get("set", "") for c in cards if re.match(r"DM2[4-9]", c.get("set", ""))})}
+    def score(c):
+        try: age = (today - datetime.strptime(c.get("pAt", ""), "%Y-%m-%d").date()).days
+        except ValueError: age = 999
+        return age * (3 if c.get("set") in recent else 1)
+    cards = sorted(cards, key=score, reverse=True)[:BATCH]
+cards = cards[:LIMIT]
 state = json.load(open(OUT, encoding="utf-8")) if os.path.exists(OUT) else {"dragonstar": {}, "pao": {}, "at": {}}
+state.setdefault("started", datetime.now(JST).strftime("%Y-%m-%d %H:%M"))
 lock = threading.Lock()
 
 def norm(s):
@@ -93,6 +105,7 @@ def worker(shop):
             state[shop][c["name"]] = res
             done += 1
             if done % 25 == 0:
+                state["at"][shop] = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
                 json.dump(state, open(OUT + ".tmp", "w", encoding="utf-8"), ensure_ascii=False); os.replace(OUT + ".tmp", OUT)
                 print(shop, len(state[shop]), "/", len(cards), file=sys.stderr, flush=True)
         time.sleep(2)
