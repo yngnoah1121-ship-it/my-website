@@ -33,6 +33,10 @@ def get(url):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
                 return r.read()
+        except urllib.error.HTTPError as e:
+            # 403/429 はショップ側が拒否しているので、繰り返さずにすぐ諦める
+            if e.code in (403, 429): raise RuntimeError(f"HTTP Error {e.code}")
+            last = e; time.sleep(5)
         except Exception as e:
             last = e; time.sleep(5)
     raise RuntimeError(str(last))
@@ -91,9 +95,12 @@ def summarize(items):
 
 def worker(shop):
     url_of, parse = SHOPS[shop]
-    done = 0
+    done = refused = 0
     for c in cards:
         if c["name"] in state[shop]: continue
+        if refused >= 10:
+            # 続けて拒否されたら、そのショップへのアクセスはやめる（ブロックを回避しようとしない）
+            print(shop, "アクセスを拒否されたので中止", file=sys.stderr, flush=True); break
         try:
             items = parse(get(url_of(c)), c)
             if not items and short_kw(c):
@@ -101,6 +108,8 @@ def worker(shop):
             res = summarize(items)
         except Exception as e:
             res = {"st": "error"}; print(shop, "fail", c["name"], e, file=sys.stderr, flush=True)
+            refused = refused + 1 if re.search(r"HTTP Error (403|429)", str(e)) else 0
+        else: refused = 0
         with lock:
             state[shop][c["name"]] = res
             done += 1

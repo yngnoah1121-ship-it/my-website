@@ -43,11 +43,12 @@ jobs:
               v = list(s.get(shop, {}).values()); ok = sum(x.get("st") == "ok" for x in v); err = sum(x.get("st") == "error" for x in v)
               print(shop, "取得", len(v), "価格あり", ok, "エラー", err)
               return len(v) < 50 or ok < len(v) * 0.4 or err > len(v) * 0.2
-          bad = [shop for shop in ("dragonstar", "pao") if bad_shop(shop)]
-          if bad:
-              print("取得に失敗したので価格は更新しません:", bad); sys.exit(1)
+          good = [shop for shop in ("dragonstar", "pao") if not bad_shop(shop)]
+          open("/tmp/good_shops", "w").write(",".join(good))
+          if not good:
+              print("どのショップも取得に失敗したので価格は更新しません"); sys.exit(1)
+          print("反映するショップ:", good)
           PY
-          python3 tools/merge_prices.py data.json /tmp/prices.json
       - name: 最新の data.json に結果を適用してプッシュ
         if: always()
         run: |
@@ -57,7 +58,7 @@ jobs:
           for i in 1 2 3; do
             git fetch origin main && git reset --hard origin/main
             [ -s /tmp/reg.html ] && python3 tools/reg.py /tmp/reg.html data.json || true
-            if [ -s /tmp/prices.json ] && [ "${{ steps.check.outcome }}" = "success" ]; then python3 tools/merge_prices.py data.json /tmp/prices.json; fi
+            if [ -s /tmp/prices.json ] && [ -s /tmp/good_shops ]; then python3 tools/merge_prices.py data.json /tmp/prices.json "$(cat /tmp/good_shops)"; fi
             git add data.json
             git diff --cached --quiet && echo "変更なし" && exit 0
             git commit -m "毎日の価格・殿堂更新 $(TZ=Asia/Tokyo date '+%Y-%m-%d')"
