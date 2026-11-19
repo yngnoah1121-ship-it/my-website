@@ -1238,9 +1238,9 @@ function renderDeck(){
       </div>
       <div class="chips">
         ${CIV_ORDER.map(c=>`<button class="chip" data-civ="${c}" aria-pressed="${bz.civ.includes(c)}"><i class="c-${c}"></i>${CIV[c]}</button>`).join("")}
+        <button class="chip" data-bcolor="mono" aria-pressed="${bz.color==="mono"}">単色</button><button class="chip" data-bcolor="multi" aria-pressed="${bz.color==="multi"}">多色</button>
       </div>
       <div class="chips">
-        <select id="bcolor" aria-label="単色・多色"><option value="">単色・多色</option><option value="mono" ${bz.color==="mono"?"selected":""}>単色だけ</option><option value="multi" ${bz.color==="multi"?"selected":""}>多色だけ</option></select>
         <select id="bcost" aria-label="コスト"><option value="">コスト</option>${[1,2,3,4,5,6,7].map(n=>`<option ${bz.cost==n?"selected":""}>${n}</option>`).join("")}<option value="8" ${bz.cost==="8"?"selected":""}>8以上</option></select>
         <select id="bkind" aria-label="種類"><option value="">種類</option>${["クリーチャー","呪文","タマシード","フィールド","オーラ"].map(k=>`<option ${bz.kind===k?"selected":""}>${k}</option>`).join("")}</select>
         <select id="bset" aria-label="収録商品"><option value="">すべての商品</option>${sets.map(x=>`<option ${bz.set===x?"selected":""}>${esc(x)}</option>`).join("")}</select>
@@ -1260,7 +1260,7 @@ function renderDeck(){
   $("#bkind").onchange = e => { bz.kind = e.target.value; drawPool(); };
   $("#bset").onchange = e => { bz.set = e.target.value; drawPool(); };
   $("#btrig").onchange = e => { bz.trig = e.target.checked; drawPool(); };
-  $("#bcolor").onchange = e => { bz.color = e.target.value; drawPool(); };
+  v.querySelectorAll("[data-bcolor]").forEach(b => b.onclick = () => { bz.color = bz.color === b.dataset.bcolor ? "" : b.dataset.bcolor; v.querySelectorAll("[data-bcolor]").forEach(x => x.setAttribute("aria-pressed", x.dataset.bcolor === bz.color)); drawPool(); });
   const clear = $("#clearBtn");
   clear.onclick = () => {
     if (clear.dataset.armed) { deck = []; saveDeck(); delete clear.dataset.armed; clear.textContent = "全削除"; refreshDeck(); return; }
