@@ -431,11 +431,24 @@ const normQ = s => String(s || "").normalize("NFKC").toLowerCase()
   .replace(/ヴ/g, "ブ").replace(/ー/g, "");
 const nameIdx = new Map();
 const nameKey = n => { let k = nameIdx.get(n); if (k == null) { k = normQ(n); nameIdx.set(n, k); } return k; };
-function nameMatch(name, q){
-  const terms = String(q || "").trim().split(/[\s　]+/).map(normQ).filter(Boolean);
-  if (!terms.length) return true;
-  const k = nameKey(name); return terms.every(t => k.includes(t));
+// 部分一致：語がそのまま含まれていれば 2点。含まれなくても、語を2〜3つに区切った各部分（2文字以上）が
+// 名前の中に順番どおりに出てくれば 1点（例：「ボルシャックNEX」→ 無限龍王ボルシャック・ライジングNEX）
+function chunksInOrder(k, t, parts){
+  if (parts === 1) return k.includes(t);
+  for (let i = 2; i <= t.length - 2; i++) { const p = k.indexOf(t.slice(0, i)); if (p >= 0 && chunksInOrder(k.slice(p + i), t.slice(i), parts - 1)) return true; }
+  return false;
 }
+function nameScore(name, q){
+  const terms = String(q || "").trim().split(/[\s　]+/).map(normQ).filter(Boolean);
+  if (!terms.length) return 2;
+  const k = nameKey(name); let score = 2;
+  for (const t of terms) { if (k.includes(t)) continue; if (t.length >= 4 && (chunksInOrder(k, t, 2) || (t.length >= 6 && chunksInOrder(k, t, 3)))) score = 1; else return 0; }
+  return score;
+}
+const nameMatch = (name, q) => nameScore(name, q) > 0;
+// 検索語があるときは、そのまま含むカードを先に並べる
+const byNameScore = (list, q) => { if (!q) return list; const sc = new Map(list.map(c => [c, nameScore(c.name, q)])); return list.sort((a, b) => sc.get(b) - sc.get(a)); };
+const colorOK = (c, color) => { if (!color) return true; const n = (c.civ || []).filter(x => x !== "zero").length; return color === "mono" ? n === 1 : n >= 2; };
 let cardIdx = null, cardIdxFor = null;
 const findCard = name => { if (cardIdxFor !== DATA) { cardIdx = new Map(DATA.cards.map(c => [c.name, c])); cardIdxFor = DATA; } return cardIdx.get(name); };
 const bestPrice = card => {
@@ -507,9 +520,7 @@ function advMatch(c){
     if (adv.civMode === "exact") { if (civ.length !== adv.civ.length || !adv.civ.every(x => civ.includes(x))) return false; }
     else if (!adv.civ.some(x => civ.includes(x))) return false;
   }
-  const realCiv = civ.filter(x => x !== "zero");
-  if (adv.color === "mono" && realCiv.length !== 1) return false;
-  if (adv.color === "multi" && realCiv.length < 2) return false;
+  if (!colorOK(c, adv.color)) return false;
   if (adv.type && !(c.type||"").split(" / ").includes(adv.type)) return false;
   if (adv.race && !racesOf(c).includes(adv.race)) return false;
   if (adv.abil && !hasAbil(c, adv.abil)) return false;
@@ -527,9 +538,9 @@ function wireAdv(upd){
     const P = $("#advPanel"); if (!P) return;
     P.onclick = e => { const b = e.target.closest("button"); if (!b) return;
       if (b.dataset.acv) { const k = b.dataset.acv; adv.civ = adv.civ.includes(k) ? adv.civ.filter(x => x !== k) : [...adv.civ, k]; b.setAttribute("aria-pressed", adv.civ.includes(k)); changed(); }
-      else if (b.dataset.acolor) { adv.color = adv.color === b.dataset.acolor ? "" : b.dataset.acolor; P.querySelectorAll("[data-acolor]").forEach(x => x.setAttribute("aria-pressed", x.dataset.acolor === adv.color)); changed(); }
+      else if (b.dataset.acolor) { adv.color = adv.color === b.dataset.acolor ? "" : b.dataset.acolor; P.querySelectorAll("[data-acolor]").forEach(x => x.setAttribute("aria-pressed", x.dataset.acolor === adv.color)); const fc = $("#fcolor"); if (fc) fc.value = adv.color; changed(); }
       else if (b.dataset.amode) { adv.civMode = b.dataset.amode; P.querySelectorAll("[data-amode]").forEach(x => x.setAttribute("aria-pressed", x.dataset.amode === adv.civMode)); changed(); }
-      else if (b.id === "advReset") { adv = ADV0(); redraw(); upd(); }
+      else if (b.id === "advReset") { adv = ADV0(); const fc = $("#fcolor"); if (fc) fc.value = ""; redraw(); upd(); }
       else if (b.id === "advClose") { advOpen = false; redraw(); }
     };
     [["aType","type"],["aRace","race"],["aAbil","abil"],["aCostMin","costMin"],["aCostMax","costMax"],["aPowMin","powMin"],["aPowMax","powMax"]].forEach(([id,k]) => { $("#"+id).onchange = e => { adv[k] = e.target.value; changed(); }; });
@@ -575,6 +586,7 @@ function renderPrices(){
   <div class="row" style="margin-bottom:12px">
     <input id="q" type="search" placeholder="カード名で検索" value="${esc(query)}" aria-label="カード名で検索">
     ${sets.length>1?`<select id="fset" aria-label="収録商品"><option value="">すべての商品</option>${sets.map(x=>`<option ${filt.set===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:""}
+    <select id="fcolor" aria-label="単色・多色"><option value="">単色・多色</option><option value="mono" ${adv.color==="mono"?"selected":""}>単色だけ</option><option value="multi" ${adv.color==="multi"?"selected":""}>多色だけ</option></select>
     <label><input type="checkbox" id="ftrig" ${filt.trig?"checked":""}> S・トリガーだけ</label>
     <label><input type="checkbox" id="fpriced" ${filt.priced?"checked":""}> 価格があるカードだけ</label>
     <button id="advBtn" class="${advCount()?"primary":""}" aria-expanded="${advOpen}">詳細な絞り込み${advCount()?`（${advCount()}）`:""}</button>
@@ -586,10 +598,10 @@ function renderPrices(){
     <thead><tr><th>カード</th><th>収録</th><th class="num">コスト</th>${DATA.shops.map(s=>`<th class="num">${esc(s.name)}</th>`).join("")}<th></th></tr></thead>
     <tbody id="rows"></tbody>
   </table></div>`;
-  const upd = () => { query = $("#q").value; filt.set = $("#fset")?.value || ""; filt.trig = $("#ftrig").checked; filt.priced = $("#fpriced").checked; filt.sort = $("#fsort").value; renderPriceRows(); };
+  const upd = () => { query = $("#q").value; filt.set = $("#fset")?.value || ""; filt.trig = $("#ftrig").checked; filt.priced = $("#fpriced").checked; filt.sort = $("#fsort").value; const fc = $("#fcolor").value; if (fc !== adv.color) { adv.color = fc; document.querySelectorAll("[data-acolor]").forEach(x => x.setAttribute("aria-pressed", x.dataset.acolor === adv.color)); } renderPriceRows(); };
   $("#q").addEventListener("input", upd);
   wireAdv(upd);
-  ["#fset","#ftrig","#fpriced","#fsort"].forEach(id => { const el = $(id); if (el) el.onchange = upd; });
+  ["#fset","#fcolor","#ftrig","#fpriced","#fsort"].forEach(id => { const el = $(id); if (el) el.onchange = upd; });
   renderPriceRows();
 }
 let priceLimit = 100, poolLimit = 120;
@@ -598,6 +610,7 @@ function renderPriceRows(keep){
   if (!keep) priceLimit = 100;
   const q = query.trim();
   const rowsAll = DATA.cards.filter(c => (!q || nameMatch(c.name, q)) && (!filt.set || c.set===filt.set) && (!filt.trig || c.trigger) && (!filt.priced || bestPrice(c)) && advMatch(c));
+  if (!filt.sort) byNameScore(rowsAll, q);
   if (filt.sort) rowsAll.sort((a,b) => { const pa = bestPrice(a)?.p, pb = bestPrice(b)?.p; if (pa == null) return 1; if (pb == null) return -1; return filt.sort === "low" ? pa - pb : pb - pa; });
   $("#count").textContent = `${rowsAll.length}件`;
   const rows = rowsAll.slice(0, priceLimit);
@@ -915,7 +928,7 @@ function deckCosts(){
 }
 
 const CIV_ORDER = ["light","water","darkness","fire","nature","zero"];
-let bz = {zone:"main", q:"", civ:[], cost:"", kind:"", set:"", trig:false, sort:"cost", panel:""};
+let bz = {zone:"main", q:"", civ:[], color:"", cost:"", kind:"", set:"", trig:false, sort:"cost", panel:""};
 const civKey = c => (c.civ||[]).map(x=>CIV_ORDER.indexOf(x)).sort().join(",");
 const sorters = {
   cost: (a,b) => (a.cost??99)-(b.cost??99) || civKey(a).localeCompare(civKey(b)) || a.name.localeCompare(b.name,"ja"),
@@ -1226,6 +1239,7 @@ function renderDeck(){
         ${CIV_ORDER.map(c=>`<button class="chip" data-civ="${c}" aria-pressed="${bz.civ.includes(c)}"><i class="c-${c}"></i>${CIV[c]}</button>`).join("")}
       </div>
       <div class="chips">
+        <select id="bcolor" aria-label="単色・多色"><option value="">単色・多色</option><option value="mono" ${bz.color==="mono"?"selected":""}>単色だけ</option><option value="multi" ${bz.color==="multi"?"selected":""}>多色だけ</option></select>
         <select id="bcost" aria-label="コスト"><option value="">コスト</option>${[1,2,3,4,5,6,7].map(n=>`<option ${bz.cost==n?"selected":""}>${n}</option>`).join("")}<option value="8" ${bz.cost==="8"?"selected":""}>8以上</option></select>
         <select id="bkind" aria-label="種類"><option value="">種類</option>${["クリーチャー","呪文","タマシード","フィールド","オーラ"].map(k=>`<option ${bz.kind===k?"selected":""}>${k}</option>`).join("")}</select>
         <select id="bset" aria-label="収録商品"><option value="">すべての商品</option>${sets.map(x=>`<option ${bz.set===x?"selected":""}>${esc(x)}</option>`).join("")}</select>
@@ -1245,6 +1259,7 @@ function renderDeck(){
   $("#bkind").onchange = e => { bz.kind = e.target.value; drawPool(); };
   $("#bset").onchange = e => { bz.set = e.target.value; drawPool(); };
   $("#btrig").onchange = e => { bz.trig = e.target.checked; drawPool(); };
+  $("#bcolor").onchange = e => { bz.color = e.target.value; drawPool(); };
   const clear = $("#clearBtn");
   clear.onclick = () => {
     if (clear.dataset.armed) { deck = []; saveDeck(); delete clear.dataset.armed; clear.textContent = "全削除"; refreshDeck(); return; }
@@ -1285,11 +1300,12 @@ function drawPool(keep){
   const q = bz.q.trim();
   const list = DATA.cards.filter(c =>
     (!q || nameMatch(c.name, q)) &&
-    (!bz.civ.length || bz.civ.some(x=>(c.civ||[]).includes(x))) &&
+    (!bz.civ.length || bz.civ.some(x=>(c.civ||[]).includes(x))) && colorOK(c, bz.color) &&
     (!bz.cost || (bz.cost==="8" ? (c.cost??0)>=8 : c.cost==bz.cost)) &&
     (!bz.kind || (c.type||"").includes(bz.kind)) &&
     (!bz.set || c.set===bz.set) && (!bz.trig || c.trigger)
   ).sort(sorters[bz.sort]);
+  byNameScore(list, q);
   const n = $("#poolCount"); if (n && !n.classList.contains("err")) n.textContent = `${list.length}枚`;
   $("#poolTiles").innerHTML = list.slice(0, poolLimit).map(c => tile(c, deck.find(e=>e.name===c.name)?.count, "add")).join("") + (list.length > poolLimit ? `<div class="empty">${moreBtn("poolMore", poolLimit, list.length)}</div>` : "") || `<p class="hint empty">条件に合うカードがありません。</p>`;
   const pm = $("#poolMore"); if (pm) pm.onclick = () => { poolLimit += 240; drawPool(true); };
