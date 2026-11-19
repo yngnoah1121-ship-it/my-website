@@ -948,6 +948,8 @@ function artHD(o, cls){
   return `<span class="${cls} sp hd" data-bg="sprites/${o.hd[0]}.webp" style="background-size:${S.cols*100}% ${S.rows*100}%;background-position:${col/(S.cols-1)*100}% ${row/(S.rows-1)*100}%"></span>`;
 }
 function art(c, cls, base){
+  // 一覧では1枚ずつの小さい画像（th/）を使う。絵柄を選んだカードだけまとめ画像から出す
+  if (DATA.thumbs && c?.officialId && c?.sp && (base || !VER[c.name]?.sp)) return `<span class="${cls} sp" data-bg="th/${encodeURIComponent(c.officialId)}.webp" style="background-size:100% 100%"></span>`;
   const sp = (!base && VER[c?.name]?.sp) || c?.sp;
   if (sp && DATA.sprites) {
     const S = DATA.sprites, col = sp[1] % S.cols, row = Math.floor(sp[1] / S.cols);
@@ -2270,11 +2272,28 @@ function route(){
   const name = views[k] ? k : "prices";
   const navName = ["deck","sim","shared"].includes(name) ? "decks" : name;
   document.querySelectorAll("#nav a").forEach(a => { if (a.getAttribute("href")==="#"+navName) a.setAttribute("aria-current","page"); else a.removeAttribute("aria-current"); });
+  if (TEXT_VIEWS.includes(name) && !textReady()) { $("#view").innerHTML = `<p class="hint">カードの効果を読み込み中…</p>`; loadText().then(() => { if (textReady()) route(); else $("#view").innerHTML = `<p class="err">カードの効果を読み込めませんでした。ページを開き直してください。</p>`; }); return; }
   views[name]();
 }
 window.addEventListener("hashchange", route);
 
-fetch("data.json", {cache:"no-store"}).then(r => { if(!r.ok) throw 0; return r.json(); }).then(d => { DATA = d; route(); })
+// 効果テキストは別ファイル（cardtext.json）。最初の表示を速くするため、あとから読み込む
+let textP = null;
+const textReady = () => !DATA?.textFile || DATA.textLoaded;
+function loadText(){
+  if (textReady()) return Promise.resolve();
+  return textP ||= fetch(DATA.textFile, {cache:"no-cache"}).then(r => { if (!r.ok) throw 0; return r.json(); }).then(t => {
+    DATA.cards.forEach(c => { const x = t[c.officialId]; if (x) c.text = x; });
+    DATA.textLoaded = true; advLists = null;
+    if ((location.hash || "#prices") === "#prices" && advCount()) renderPriceRows(true);
+  }).catch(() => { textP = null; });
+}
+// 効果テキストが要る画面は、読み込みを待ってから表示
+const TEXT_VIEWS = ["sim", "shared"];
+const _openCardDetail = openCardDetail;
+openCardDetail = (...a) => textReady() ? _openCardDetail(...a) : loadText().then(() => _openCardDetail(...a));
+// 毎回ぜんぶ取り直さず、変わっていなければ保存済みのものを使う（no-cache＝更新の有無だけ確認）
+fetch("data.json", {cache:"no-cache"}).then(r => { if(!r.ok) throw 0; return r.json(); }).then(d => { DATA = d; route(); setTimeout(loadText, 50); })
   .catch(() => { $("#view").innerHTML = `<p class="err">価格データ（data.json）を読み込めませんでした。ページを開き直してください。</p>`; });
 
 })();
