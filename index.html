@@ -274,6 +274,9 @@ button.chip[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 
 .pricetable td,.pricetable th{padding:5px 8px;white-space:nowrap}
 .pricetable td:first-child{white-space:normal;min-width:9em}
 .pricetable td.cheapest{color:var(--good);font-weight:700}
+.pricetable td.cheapest a{color:inherit}
+.pricetable td.otherlinks{white-space:nowrap}
+.pricetable td.otherlinks a{margin-right:8px}
 .pill.yen{border-color:var(--line);color:var(--ink)}
 .pill.ng{border-color:var(--fire);color:var(--fire)}
 .navsupport:not([aria-current]){color:var(--fire)!important}
@@ -904,17 +907,21 @@ function priceViewHtml(cards){
   const shops = DATA.shops.filter(s => r.perShop[s.id]);
   const one = shops.map(s => ({s, ...r.perShop[s.id]}));
   const bestOne = one.filter(x=>!x.missing).sort((a,b)=>a.total-b.total)[0];
-  const cell = (c, s) => { const p = c?.prices?.[s.id]; if (p != null) return yen(p); return c?.pst?.[s.id]==="soldout" ? '<span class="hint">品切れ</span>' : '<span class="hint">—</span>'; };
+  // 価格を押すと、その店でそのカードを探すページが開く
+  const lk = (s, c, inner, cls) => { const l = c && shopLink(s, c); return l ? `<a class="${cls||""}" href="${esc(l)}" target="_blank" rel="noopener" title="${esc(s.name)}で探す" style="${cls?"":"color:inherit"}">${inner}</a>` : inner; };
+  const cell = (c, s) => { const p = c?.prices?.[s.id]; if (p != null) return lk(s, c, yen(p)); return c?.pst?.[s.id]==="soldout" ? lk(s, c, "品切れ", "soldlink") : lk(s, c, "探す ↗", "shoplink"); };
+  const others = DATA.shops.filter(s => !r.perShop[s.id] && s.search);
+  const otherLinks = c => c ? others.map(s => `<a class="shoplink" href="${esc(shopLink(s, c))}" target="_blank" rel="noopener">${esc(s.name)}${s.search.includes("{q") ? "" : "（検索ページ）"} ↗</a>`).join(" ") : "";
   const lines = [...r.lines].sort((a,b)=>(b.sub??-1)-(a.sub??-1));
   return `<div class="pricesum">
       <div class="pricebig"><span class="hint">最安で全部そろえると</span><b>${yen(r.total)}${r.missing?"〜":""}</b>
         <span class="hint">${r.count}枚${r.missing?` ・ ${r.missing}枚は価格がないため含まず`:""}</span></div>
       <div><h3>1つの店でまとめて買うと</h3><table><tbody>${one.map(x=>`<tr><td>${esc(x.s.name)}${x===bestOne?' <span class="pill ok">おすすめ</span>':""}</td><td class="num">${yen(x.total)}${x.missing?"〜":""}</td><td class="hint">${x.missing?`${x.missing}枚 在庫・価格なし`:"全部そろう"}</td></tr>`).join("")}</tbody></table></div>
     </div>
-    <div class="scroll"><table class="pricetable"><thead><tr><th>カード</th><th class="num">枚数</th>${shops.map(s=>`<th class="num">${esc(s.name)}</th>`).join("")}<th class="num">小計（最安）</th></tr></thead><tbody>
-      ${lines.map(({e,c,b,sub})=>`<tr><td>${esc(e.name.split(" / ")[0])}</td><td class="num">${e.count}</td>${shops.map(s=>`<td class="num${b&&b.shop.id===s.id?" cheapest":""}">${cell(c,s)}</td>`).join("")}<td class="num"><b>${sub!=null?yen(sub):"—"}</b></td></tr>`).join("")}
+    <div class="scroll"><table class="pricetable"><thead><tr><th>カード</th><th class="num">枚数</th>${shops.map(s=>`<th class="num">${esc(s.name)}</th>`).join("")}<th class="num">小計（最安）</th>${others.length?"<th>ほかの店で探す</th>":""}</tr></thead><tbody>
+      ${lines.map(({e,c,b,sub})=>`<tr><td>${esc(e.name.split(" / ")[0])}</td><td class="num">${e.count}</td>${shops.map(s=>`<td class="num${b&&b.shop.id===s.id?" cheapest":""}">${cell(c,s)}</td>`).join("")}<td class="num"><b>${sub!=null?yen(sub):"—"}</b></td>${others.length?`<td class="otherlinks">${otherLinks(c)}</td>`:""}</tr>`).join("")}
     </tbody></table></div>
-    <p class="hint" style="margin:8px 0 0">1枚あたりの価格です。各店の在庫ありの最安の版で、取得：${DATA.priceAt?Object.entries(DATA.priceAt).map(([id,at])=>esc((DATA.shops.find(s=>s.id===id)?.name||id)+" "+at)).join("、"):"—"}。買う前に各店で確認してください。</p>`;
+    <p class="hint" style="margin:8px 0 0">1枚あたりの価格です。各店の在庫ありの最安の版で、取得：${DATA.priceAt?Object.entries(DATA.priceAt).map(([id,at])=>esc((DATA.shops.find(s=>s.id===id)?.name||id)+" "+at)).join("、"):"—"}。価格を押すと、その店でカードを探すページが開きます。買う前に各店で確認してください。</p>`;
 }
 function deckCosts(){
   const perShop = Object.fromEntries(DATA.shops.map(s => [s.id, {total:0, missing:0}]));
