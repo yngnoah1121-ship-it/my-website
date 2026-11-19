@@ -430,7 +430,8 @@ const normQ = s => String(s || "").normalize("NFKC").toLowerCase()
   .replace(/[ァィゥェォッャュョヮ]/g, ch => ({"ァ":"ア","ィ":"イ","ゥ":"ウ","ェ":"エ","ォ":"オ","ッ":"ツ","ャ":"ヤ","ュ":"ユ","ョ":"ヨ","ヮ":"ワ"})[ch])
   .replace(/ヴ/g, "ブ").replace(/ー/g, "");
 const nameIdx = new Map();
-const nameKey = n => { let k = nameIdx.get(n); if (k == null) { k = normQ(n); nameIdx.set(n, k); } return k; };
+// カード名に加えて、読み（y：辞書で自動生成したカタカナ。「|」区切りで複数）でも一致させる → ひらがなで漢字の名前を探せる
+const nameKey = n => { let k = nameIdx.get(n); if (k == null) { const y = DATA && findCard(n)?.y; k = normQ(n) + (y ? "|" + y.split("|").map(normQ).join("|") : ""); nameIdx.set(n, k); } return k; };
 // 部分一致：語がそのまま含まれていれば 2点。含まれなくても、語を2〜3つに区切った各部分（2文字以上）が
 // 名前の中に順番どおりに出てくれば 1点（例：「ボルシャックNEX」→ 無限龍王ボルシャック・ライジングNEX）
 function chunksInOrder(k, t, parts){
