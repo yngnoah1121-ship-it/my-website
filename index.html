@@ -929,7 +929,50 @@ function deckCosts(){
 }
 
 const CIV_ORDER = ["light","water","darkness","fire","nature","zero"];
-let bz = {zone:"main", q:"", civ:[], color:"", cost:"", kind:"", set:"", trig:false, sort:"cost", panel:""};
+let bz = {zone:"main", q:"", civ:[], color:"", cost:"", kind:"", set:"", trig:false, sort:"rec", panel:"", last:""};
+/* ---------- おすすめ（今のデッキと相性がいいカード） ----------
+   ほかの人のデッキの統計は使えないので、カードの情報から相性を点数にする：
+   ・効果文に名前・種族が出てくる（「〇〇」を持つ、など）・同じ種族・進化元
+   ・同じ文明（デッキにない文明は下げる）・同じしくみ（革命チェンジ、侵略など）
+   最後に入れたカードとの相性を特に重くする */
+const MECHS = ["革命チェンジ","侵略","GR召喚","ジョーカーズ","ハイパー化","メクレイド","EXライフ","シンカライズ","マナ武装","キズナ","ドロン・ゴー","B・A・D","ミラダンテ","ガチンコ・ジャッジ","ムゲンクライム","S・バック","G・ゼロ","チャージャー","シンパシー","ブロッカー","スレイヤー","マッハファイター"];
+let recFeat = null, recFeatFor = null;
+function recFeatures(){
+  const key = DATA.cards.length + ":" + !!DATA.textLoaded;
+  if (recFeat && recFeatFor === key) return recFeat;
+  recFeat = new Map(); recFeatFor = key;
+  DATA.cards.forEach(c => { const t = textOf(c);
+    recFeat.set(c.name, {races: racesOf(c), quotes: [...new Set((t.match(/「[^」]{2,20}」/g) || []).map(q => q.slice(1, -1)))], mech: MECHS.filter(m => t.includes(m) || (c.type||"").includes(m) || racesOf(c).some(r => r.includes(m))), evo: /進化/.test(c.type||"")}); });
+  return recFeat;
+}
+function recScores(){
+  const main = deck.filter(e => findCard(e.name)); if (!main.length) return null;
+  const F = recFeatures(), raceW = {}, quoteW = {}, mechW = {}, wordW = {}, tokW = {}, civs = new Set(), names = new Set();
+  const addW = (o, k, w) => o[k] = (o[k] || 0) + w;
+  main.forEach(e => { const c = findCard(e.name), f = F.get(c.name); if (!f) return;
+    const w = Math.min(4, e.count) * (e.name === bz.last ? 3 : 1);
+    names.add(c.name); (c.civ||[]).forEach(x => civs.add(x));
+    f.races.forEach(r => addW(raceW, r, w)); f.quotes.forEach(q => addW(quoteW, q, w)); f.mech.forEach(m => addW(mechW, m, w));
+    // 効果文にそのまま書かれた種族（例：ドラゴン・クリーチャー、ファイアー・バードを）
+    (textOf(c).replace(/「[^」]*」/g, "").match(/[ァ-ヴー・]{3,}?(?=・?クリーチャー|を持つ)/g) || []).forEach(x => { x = x.replace(/^・|・$/g, ""); if (x.length >= 3) addW(wordW, x, w); });
+    // 名前のシリーズ（例：ボルシャック、モモキング）
+    (c.name.split(" / ")[0].match(/[ァ-ヴー]{4,}/g) || []).forEach(x => addW(tokW, x, w)); });
+  const quotes = Object.entries(quoteW), words = Object.entries(wordW), toks = Object.entries(tokW), races = Object.keys(raceW), out = new Map();
+  DATA.cards.forEach(c => { if (names.has(c.name) || regOf(c.name) === "premium") return; const f = F.get(c.name); if (!f) return;
+    let sc = 0;
+    f.races.forEach(r => { if (raceW[r]) sc += Math.min(raceW[r], 12) * 0.5; });
+    quotes.forEach(([q, w]) => { if (c.name.includes(q) || f.races.some(r => r.includes(q))) sc += 3 * Math.min(w, 8); });
+    words.forEach(([x, w]) => { if (f.races.some(r => r.includes(x))) sc += 1.5 * Math.min(w, 8); });
+    toks.forEach(([x, w]) => { if (c.name.includes(x)) sc += 1.5 * Math.min(w, 8); });
+    // この候補の効果文が、デッキのカード名・種族を名指ししている（重複しても1回だけ）
+    if (f.quotes.some(q => [...names].some(n => n.includes(q)) || races.some(r => r.includes(q)))) sc += 3;
+    f.mech.forEach(m => { if (mechW[m]) sc += Math.min(mechW[m], 8) * 0.5; });
+    if (sc <= 0) return;
+    const cv = (c.civ||[]).filter(x => x !== "zero");
+    if (cv.length && civs.size) sc *= cv.every(x => civs.has(x)) ? 1.5 : cv.some(x => civs.has(x)) ? 0.8 : 0.3;
+    out.set(c.name, sc); });
+  return out;
+}
 const civKey = c => (c.civ||[]).map(x=>CIV_ORDER.indexOf(x)).sort().join(",");
 const sorters = {
   cost: (a,b) => (a.cost??99)-(b.cost??99) || civKey(a).localeCompare(civKey(b)) || a.name.localeCompare(b.name,"ja"),
@@ -1236,7 +1279,7 @@ function renderDeck(){
     <section class="b-pool panel" aria-label="カードを探す">
       <div class="b-search">
         <input id="bq" type="search" placeholder="カード名で探す" value="${esc(bz.q)}" aria-label="カード名で探す">
-        <select id="bsort" aria-label="並べ替え">${[["cost","コスト順"],["civ","文明順"],["name","名前順"],["price","価格が高い順"]].map(([k,l])=>`<option value="${k}" ${bz.sort===k?"selected":""}>${l}</option>`).join("")}</select>
+        <select id="bsort" aria-label="並べ替え">${[["rec","おすすめ順"],["cost","コスト順"],["civ","文明順"],["name","名前順"],["price","価格が高い順"]].map(([k,l])=>`<option value="${k}" ${bz.sort===k?"selected":""}>${l}</option>`).join("")}</select>
       </div>
       <div class="chips">
         ${CIV_ORDER.map(c=>`<button class="chip" data-civ="${c}" aria-pressed="${bz.civ.includes(c)}"><i class="c-${c}"></i>${CIV[c]}</button>`).join("")}
@@ -1249,6 +1292,7 @@ function renderDeck(){
         <label class="chip"><input type="checkbox" id="btrig" ${bz.trig?"checked":""}> S・トリガー</label>
         <span class="hint" id="poolCount"></span>
       </div>
+      <p class="hint" id="recNote" hidden style="margin:0 0 6px"></p>
       <div class="tiles pool" id="poolTiles"></div>
     </section>
   </div>`;
@@ -1278,7 +1322,7 @@ function renderDeck(){
   v.onclick = e => {
     if (lpFired && lpTarget(e)) { lpFired = false; return; }
     const add = e.target.closest("[data-add]"), rm = e.target.closest("[data-rm]");
-    if (add) { const z = zoneOf(add.dataset.add); if (!addToDeck(add.dataset.add, 1)) flash(add, lastBlock || `${ZONES[z].label}はこれ以上入れられません`); else { if (bz.zone!==z) { bz.zone=z; v.querySelectorAll("[data-zone]").forEach(x=>x.setAttribute("aria-selected", x.dataset.zone===z)); } refreshDeck(); } }
+    if (add) { const z = zoneOf(add.dataset.add); if (!addToDeck(add.dataset.add, 1)) flash(add, lastBlock || `${ZONES[z].label}はこれ以上入れられません`); else { if (bz.zone!==z) { bz.zone=z; v.querySelectorAll("[data-zone]").forEach(x=>x.setAttribute("aria-selected", x.dataset.zone===z)); } bz.last = add.dataset.add; refreshDeck(); if (bz.sort === "rec" && !bz.q.trim()) drawPool(); } }
     if (rm) { addToDeck(rm.dataset.rm, -1); refreshDeck(); }
     if (e.target.closest("#imgBtn")) openDeckImage({name: currentSaved()?.name || "デッキ", cards: deck});
     if (e.target.closest("#shareBtn")) oneTapShare({name: currentSaved()?.name || "デッキ", cards: deck});
@@ -1294,7 +1338,7 @@ function refreshDeck(){
 }
 function drawDeckTiles(){
   const list = deck.filter(e=>zoneOf(e.name)===bz.zone).map(e=>({e, c: findCard(e.name) || {name:e.name, civ:[], cost:null, trigger:e.trigger}}));
-  list.sort((a,b)=>sorters[bz.sort](a.c,b.c));
+  list.sort((a,b)=>(sorters[bz.sort] || sorters.cost)(a.c,b.c));
   $("#deckTiles").innerHTML = (list.length ? `<p class="hint tilehint">押すと1枚減らす ・ 長押し（右クリック）で枚数と絵柄を変える</p>` : "") + list.map(({e,c})=>tile(c, e.count, "rm")).join("") ||
     `<p class="hint empty">${ZONES[bz.zone].label}にはまだカードがありません。下のカード一覧から押して追加してください。</p>`;
 }
@@ -1307,8 +1351,11 @@ function drawPool(keep){
     (!bz.cost || (bz.cost==="8" ? (c.cost??0)>=8 : c.cost==bz.cost)) &&
     (!bz.kind || (c.type||"").includes(bz.kind)) &&
     (!bz.set || c.set===bz.set) && (!bz.trig || c.trigger)
-  ).sort(sorters[bz.sort]);
+  ).sort(sorters[bz.sort] || sorters.cost);
+  let recNote = "";
+  if (bz.sort === "rec" && !q) { const R = recScores(); if (R) { list.sort((a, b) => (R.get(b.name) || 0) - (R.get(a.name) || 0)); recNote = bz.last && findCard(bz.last) ? `《${bz.last.split(" / ")[0]}》と今のデッキに合うカードを先に表示しています（カードの種族・効果・文明から判断）` : "今のデッキに合うカードを先に表示しています（カードの種族・効果・文明から判断）"; } }
   byNameScore(list, q);
+  const rn = $("#recNote"); if (rn) { rn.textContent = recNote; rn.hidden = !recNote; }
   const n = $("#poolCount"); if (n && !n.classList.contains("err")) n.textContent = `${list.length}枚`;
   $("#poolTiles").innerHTML = list.slice(0, poolLimit).map(c => tile(c, deck.find(e=>e.name===c.name)?.count, "add")).join("") + (list.length > poolLimit ? `<div class="empty">${moreBtn("poolMore", poolLimit, list.length)}</div>` : "") || `<p class="hint empty">条件に合うカードがありません。</p>`;
   const pm = $("#poolMore"); if (pm) pm.onclick = () => { poolLimit += 240; drawPool(true); };
@@ -2286,6 +2333,7 @@ function loadText(){
     DATA.cards.forEach(c => { const x = t[c.officialId]; if (x) c.text = x; });
     DATA.textLoaded = true; advLists = null;
     if ((location.hash || "#prices") === "#prices" && advCount()) renderPriceRows(true);
+    if (location.hash === "#deck" && bz.sort === "rec" && $("#poolTiles")) drawPool(true);
   }).catch(() => { textP = null; });
 }
 // 効果テキストが要る画面は、読み込みを待ってから表示
